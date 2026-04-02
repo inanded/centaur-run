@@ -207,17 +207,39 @@ class GameScene extends Phaser.Scene {
         });
 
         this.musicStarted = false;
+        this.gameStarted = false;
 
-        // --- Input: unified touch + keyboard ---
-        // Pointer (touch/mouse) down = start jump
-        this.input.on('pointerdown', () => this.onJumpStart());
+        // --- Start screen ---
+        this.startOverlay = this.add.rectangle(GAME_W/2, GAME_H/2, GAME_W, GAME_H, 0x000000, 0.5).setDepth(50);
+        this.startText = this.add.text(GAME_W/2, GAME_H/2, 'TAP TO START', {
+            fontSize: '42px', fontFamily: 'Georgia, serif', color: '#C4A882',
+            fontStyle: 'bold', stroke: '#000000', strokeThickness: 4
+        }).setOrigin(0.5).setDepth(51);
+
+        // Pulse the start text
+        this.tweens.add({
+            targets: this.startText, alpha: 0.4, duration: 800,
+            yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+        });
+
+        // --- Input ---
+        this.input.on('pointerdown', () => {
+            if (!this.gameStarted) { this.beginGame(); return; }
+            this.onJumpStart();
+        });
         this.input.on('pointerup', () => this.onJumpRelease());
 
-        // Keyboard
         this.spaceBar = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
         this.upKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
 
         this.gameOverGroup = this.add.group();
+    }
+
+    beginGame() {
+        this.gameStarted = true;
+        this.startOverlay.destroy();
+        this.startText.destroy();
+        this.startMusic();
     }
 
     startMusic() {
@@ -242,7 +264,6 @@ class GameScene extends Phaser.Scene {
     }
 
     onJumpStart() {
-        if (!this.musicStarted) this.startMusic();
         if (this.isGameOver) { this.restartGame(); return; }
 
         if (!this.isJumping) {
@@ -324,6 +345,14 @@ class GameScene extends Phaser.Scene {
     }
 
     update(time, delta) {
+        // Allow keyboard to start game
+        if (!this.gameStarted) {
+            if (Phaser.Input.Keyboard.JustDown(this.spaceBar) || Phaser.Input.Keyboard.JustDown(this.upKey)) {
+                this.beginGame();
+            }
+            return;
+        }
+
         const dt = delta / 1000;
         const speed = BASE_SCROLL * this.speedMultiplier;
 
@@ -337,7 +366,6 @@ class GameScene extends Phaser.Scene {
 
         // Keyboard input
         if (Phaser.Input.Keyboard.JustDown(this.spaceBar) || Phaser.Input.Keyboard.JustDown(this.upKey)) {
-            if (!this.musicStarted) this.startMusic();
             this.onJumpStart();
         }
         if (this.spaceBar.isUp && this.upKey.isUp && this.isHoldingJump && !this.input.activePointer.isDown) {
