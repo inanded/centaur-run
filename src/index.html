@@ -89,6 +89,8 @@ class GameScene extends Phaser.Scene {
         this.load.image('obs_logpile', '../assets/obs_logpile.png');
         this.load.image('obs_log', '../assets/obs_log.png');
         this.load.image('obs_mossylog', '../assets/obs_mossylog.png');
+        this.load.image('obs_fence', '../assets/obs_fence.png');
+        this.load.image('obs_fence_broken', '../assets/obs_fence_broken.png');
         this.load.audio('music', '../assets/music.mp3');
         this.load.audio('sfx_jump', '../assets/jump.mp3');
         this.load.audio('sfx_gameover', '../assets/gameover.mp3');
@@ -136,11 +138,17 @@ class GameScene extends Phaser.Scene {
         // Obstacles
         this.obstacles = [];
         this.nextObstacleTime = 2500;
-        this.obstacleTypes = [
+        // Low obstacles (single jump)
+        this.lowObstacles = [
             { key: 'obs_boulder', scale: 0.25, hitW: 50, hitH: 45 },
             { key: 'obs_logpile', scale: 0.30, hitW: 50, hitH: 45 },
             { key: 'obs_log', scale: 0.25, hitW: 60, hitH: 30 },
             { key: 'obs_mossylog', scale: 0.25, hitW: 55, hitH: 30 },
+        ];
+        // Tall obstacles (need double jump)
+        this.tallObstacles = [
+            { key: 'obs_fence', scale: 0.35, hitW: 70, hitH: 55 },
+            { key: 'obs_fence_broken', scale: 0.35, hitW: 60, hitH: 50 },
         ];
 
         // Dust
@@ -277,7 +285,11 @@ class GameScene extends Phaser.Scene {
     }
 
     spawnObstacle() {
-        const t = Phaser.Utils.Array.GetRandom(this.obstacleTypes);
+        // Fences start appearing after score 3, become more common as score rises
+        const fenceChance = Math.min(0.4, Math.max(0, (this.score - 3) * 0.06));
+        const useTall = Math.random() < fenceChance;
+        const pool = useTall ? this.tallObstacles : this.lowObstacles;
+        const t = Phaser.Utils.Array.GetRandom(pool);
         const obs = this.add.image(GAME_W + 80, GROUND_Y, t.key);
         obs.setScale(t.scale);
         obs.setOrigin(0.5, 1);
