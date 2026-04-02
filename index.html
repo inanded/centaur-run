@@ -206,9 +206,7 @@ class GameScene extends Phaser.Scene {
             this.toggleMute();
         });
 
-        // Start music on first interaction (browsers require user gesture)
         this.musicStarted = false;
-        this.input.once('pointerdown', () => this.startMusic());
 
         // --- Input: unified touch + keyboard ---
         // Pointer (touch/mouse) down = start jump
@@ -244,6 +242,7 @@ class GameScene extends Phaser.Scene {
     }
 
     onJumpStart() {
+        if (!this.musicStarted) this.startMusic();
         if (this.isGameOver) { this.restartGame(); return; }
 
         if (!this.isJumping) {
@@ -338,6 +337,7 @@ class GameScene extends Phaser.Scene {
 
         // Keyboard input
         if (Phaser.Input.Keyboard.JustDown(this.spaceBar) || Phaser.Input.Keyboard.JustDown(this.upKey)) {
+            if (!this.musicStarted) this.startMusic();
             this.onJumpStart();
         }
         if (this.spaceBar.isUp && this.upKey.isUp && this.isHoldingJump && !this.input.activePointer.isDown) {
