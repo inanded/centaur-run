@@ -89,6 +89,7 @@ class GameScene extends Phaser.Scene {
         this.load.image('obs_logpile', 'assets/obs_logpile.png');
         this.load.image('obs_log', 'assets/obs_log.png');
         this.load.image('obs_mossylog', 'assets/obs_mossylog.png');
+        this.load.audio('music', 'assets/music.mp3');
     }
 
     create() {
@@ -172,6 +173,27 @@ class GameScene extends Phaser.Scene {
             this.tweens.add({ targets: this.instructionText, alpha: 0, duration: 600 });
         });
 
+        // --- Music ---
+        this.music = this.sound.add('music', { loop: true, volume: 0.4 });
+        this.isMuted = localStorage.getItem('centaur_muted') === 'true';
+
+        // Mute button (top-left)
+        this.muteBtn = this.add.text(16, 16, this.isMuted ? 'MUTED' : 'MUSIC', {
+            fontSize: '18px', fontFamily: 'Georgia, serif',
+            color: this.isMuted ? '#666666' : '#C4A882',
+            stroke: '#000000', strokeThickness: 3,
+            padding: { x: 8, y: 4 }
+        }).setInteractive({ useHandCursor: true }).setDepth(100);
+
+        this.muteBtn.on('pointerdown', (pointer) => {
+            pointer.event.stopPropagation();
+            this.toggleMute();
+        });
+
+        // Start music on first interaction (browsers require user gesture)
+        this.musicStarted = false;
+        this.input.once('pointerdown', () => this.startMusic());
+
         // --- Input: unified touch + keyboard ---
         // Pointer (touch/mouse) down = start jump
         this.input.on('pointerdown', () => this.onJumpStart());
@@ -182,6 +204,27 @@ class GameScene extends Phaser.Scene {
         this.upKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
 
         this.gameOverGroup = this.add.group();
+    }
+
+    startMusic() {
+        if (!this.musicStarted) {
+            this.musicStarted = true;
+            if (!this.isMuted) {
+                this.music.play();
+            }
+        }
+    }
+
+    toggleMute() {
+        this.isMuted = !this.isMuted;
+        localStorage.setItem('centaur_muted', String(this.isMuted));
+        this.muteBtn.setText(this.isMuted ? 'MUTED' : 'MUSIC');
+        this.muteBtn.setColor(this.isMuted ? '#666666' : '#C4A882');
+        if (this.isMuted) {
+            this.music.pause();
+        } else if (this.musicStarted) {
+            this.music.resume();
+        }
     }
 
     onJumpStart() {
