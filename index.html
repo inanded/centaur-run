@@ -8,6 +8,8 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="screen-orientation" content="landscape">
     <title>Centaur Run</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="favicon.png">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         html, body {
@@ -256,10 +258,10 @@ class GameScene extends Phaser.Scene {
             if (!this.isMuted) this.sfxJump.play();
             this.spawnDust(this.centaur.x - 20, GROUND_Y, 6);
         } else if (this.canDoubleJump && !this.hasDoubleJumped) {
-            // Double jump mid-air
+            // Double jump mid-air - fixed velocity, no hold boost
             this.hasDoubleJumped = true;
-            this.centaurVelocityY = JUMP_VELOCITY_MIN * 0.8;
-            this.isHoldingJump = true;
+            this.centaurVelocityY = JUMP_VELOCITY_MIN * 0.75;
+            this.isHoldingJump = false;
             this.jumpHoldTime = 0;
             this.centaur.play('jump');
             if (!this.isMuted) this.sfxJump.play();
@@ -300,6 +302,7 @@ class GameScene extends Phaser.Scene {
     }
 
     restartGame() {
+        if (!this.isMuted && this.musicStarted) this.music.resume();
         this.isGameOver = false;
         this.score = 0;
         this.speedMultiplier = 1;
@@ -357,6 +360,12 @@ class GameScene extends Phaser.Scene {
         if (this.isJumping) {
             this.centaurVelocityY += GRAVITY * dt;
             this.centaurY += this.centaurVelocityY * dt;
+            // Ceiling clamp - don't fly off screen
+            if (this.centaurY < 80) {
+                this.centaurY = 80;
+                this.centaurVelocityY = 0;
+                this.isHoldingJump = false;
+            }
             if (this.centaurY >= GROUND_Y) {
                 this.centaurY = GROUND_Y;
                 this.centaurVelocityY = 0;
@@ -412,6 +421,7 @@ class GameScene extends Phaser.Scene {
         this.isGameOver = true;
         this.centaur.stop();
         this.centaur.setAlpha(0.6);
+        this.music.pause();
         if (!this.isMuted) {
             this.sfxImpact.play();
             this.time.delayedCall(400, () => { if (!this.isMuted) this.sfxGameover.play(); });
