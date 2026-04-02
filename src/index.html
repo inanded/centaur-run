@@ -90,6 +90,7 @@ class GameScene extends Phaser.Scene {
         this.load.image('obs_log', '../assets/obs_log.png');
         this.load.image('obs_mossylog', '../assets/obs_mossylog.png');
         this.load.audio('music', '../assets/music.mp3');
+        this.load.audio('sfx_jump', '../assets/jump.mp3');
     }
 
     create() {
@@ -175,6 +176,7 @@ class GameScene extends Phaser.Scene {
 
         // --- Music ---
         this.music = this.sound.add('music', { loop: true, volume: 0.4 });
+        this.sfxJump = this.sound.add('sfx_jump', { volume: 0.5 });
         this.isMuted = localStorage.getItem('centaur_muted') === 'true';
 
         // Mute button (top-left)
@@ -239,6 +241,7 @@ class GameScene extends Phaser.Scene {
             this.canDoubleJump = true;
             this.hasDoubleJumped = false;
             this.centaur.play('jump');
+            if (!this.isMuted) this.sfxJump.play();
             this.spawnDust(this.centaur.x - 20, GROUND_Y, 6);
         } else if (this.canDoubleJump && !this.hasDoubleJumped) {
             // Double jump mid-air
@@ -247,6 +250,7 @@ class GameScene extends Phaser.Scene {
             this.isHoldingJump = true;
             this.jumpHoldTime = 0;
             this.centaur.play('jump');
+            if (!this.isMuted) this.sfxJump.play();
             this.spawnDust(this.centaur.x, this.centaurY, 4);
         }
     }
@@ -374,6 +378,7 @@ class GameScene extends Phaser.Scene {
                 obs.scored = true;
                 this.score++;
                 this.scoreText.setText(`Score: ${this.score}`);
+                if (!this.isMuted) this.sfxJump.play({ volume: 0.3, rate: 1.3 });
             }
 
             // Tight collision
