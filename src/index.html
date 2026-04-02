@@ -91,6 +91,8 @@ class GameScene extends Phaser.Scene {
         this.load.image('obs_mossylog', '../assets/obs_mossylog.png');
         this.load.audio('music', '../assets/music.mp3');
         this.load.audio('sfx_jump', '../assets/jump.mp3');
+        this.load.audio('sfx_gameover', '../assets/gameover.mp3');
+        this.load.audio('sfx_impact', '../assets/impact.mp3');
     }
 
     create() {
@@ -177,6 +179,8 @@ class GameScene extends Phaser.Scene {
         // --- Music ---
         this.music = this.sound.add('music', { loop: true, volume: 0.4 });
         this.sfxJump = this.sound.add('sfx_jump', { volume: 0.5 });
+        this.sfxGameover = this.sound.add('sfx_gameover', { volume: 0.6 });
+        this.sfxImpact = this.sound.add('sfx_impact', { volume: 0.7 });
         this.isMuted = localStorage.getItem('centaur_muted') === 'true';
 
         // Mute button (top-left)
@@ -396,6 +400,10 @@ class GameScene extends Phaser.Scene {
         this.isGameOver = true;
         this.centaur.stop();
         this.centaur.setAlpha(0.6);
+        if (!this.isMuted) {
+            this.sfxImpact.play();
+            this.time.delayedCall(400, () => { if (!this.isMuted) this.sfxGameover.play(); });
+        }
 
         // Update high score
         if (this.score > this.highScore) {
