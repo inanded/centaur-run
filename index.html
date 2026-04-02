@@ -2,33 +2,87 @@
 <html>
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="screen-orientation" content="landscape">
     <title>Centaur Run</title>
     <style>
-        * { margin: 0; padding: 0; }
-        body { background: #1a1a2e; display: flex; justify-content: center; align-items: center; height: 100vh; overflow: hidden; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            width: 100%; height: 100%;
+            background: #1a1a2e;
+            overflow: hidden;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            position: fixed;
+            top: 0; left: 0;
+        }
         canvas { display: block; }
+        #rotate-msg {
+            display: none;
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: #1a1a2e;
+            color: #C4A882;
+            font-family: Georgia, serif;
+            font-size: 22px;
+            z-index: 9999;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 40px;
+        }
+        #rotate-msg .icon { font-size: 60px; margin-bottom: 20px; }
+        @media (orientation: portrait) and (max-width: 768px) {
+            #rotate-msg { display: flex; }
+        }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
 </head>
 <body>
+    <div id="rotate-msg">
+        <div class="icon">&#x21BB;</div>
+        <div>Rotate your device to landscape to play!</div>
+    </div>
 <script>
+// Prevent pull-to-refresh and bounce scrolling
+document.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+
 const GAME_W = 960;
 const GAME_H = 540;
-// The dirt path in the background image is at ~y=1280-1400 out of 1536
-// Scaled to game: 1300 * (540/1536) ≈ 457
 const GROUND_Y = 500;
 const GRAVITY = 1800;
-const JUMP_VELOCITY = -720;
+const JUMP_VELOCITY_MIN = -580;  // short tap
+const JUMP_VELOCITY_MAX = -780;  // full hold
+const HOLD_TIME_FOR_MAX = 180;   // ms to reach max jump
 const BASE_SCROLL = 4;
 
 class GameScene extends Phaser.Scene {
     constructor() {
         super('game');
         this.score = 0;
+        this.highScore = parseInt(localStorage.getItem('centaur_hs') || '0');
         this.isGameOver = false;
     }
 
     preload() {
+        // Loading bar for mobile
+        const bar = this.add.graphics();
+        this.load.on('progress', p => {
+            bar.clear();
+            bar.fillStyle(0xC4A882, 1);
+            bar.fillRect(GAME_W * 0.2, GAME_H / 2 - 10, GAME_W * 0.6 * p, 20);
+            bar.lineStyle(2, 0xC4A882);
+            bar.strokeRect(GAME_W * 0.2, GAME_H / 2 - 10, GAME_W * 0.6, 20);
+        });
+        this.load.on('complete', () => bar.destroy());
+
         this.load.atlas('centaur', 'assets/spritesheet.png', 'assets/spritesheet.json');
         this.load.image('bg', 'assets/background.png');
         this.load.image('obs_boulder', 'assets/obs_boulder.png');
@@ -38,14 +92,11 @@ class GameScene extends Phaser.Scene {
     }
 
     create() {
-        // Full background as endless scroll
-        // The bg image is 2816x1536. We need it to fill 960x540 and tile horizontally.
-        // tileSprite uses texture pixels for tilePosition, so we scale accordingly.
+        // Background
         const bgTex = this.textures.get('bg').getSourceImage();
-        this.bgNativeW = bgTex.width;   // 2816
-        this.bgNativeH = bgTex.height;  // 1536
-        this.bgScaleX = GAME_W / this.bgNativeW;  // how much we're shrinking
-        this.bgScaleY = GAME_H / this.bgNativeH;
+        this.bgNativeW = bgTex.width;
+        this.bgNativeH = bgTex.height;
+        this.bgScaleX = GAME_W / this.bgNativeW;
 
         this.bg = this.add.tileSprite(0, 0, this.bgNativeW, this.bgNativeH, 'bg')
             .setOrigin(0, 0)
@@ -64,7 +115,7 @@ class GameScene extends Phaser.Scene {
         }
         this.anims.create({ key: 'jump', frames: jumpFrames, frameRate: 10, repeat: 0 });
 
-        // Centaur - origin at bottom-center of the sprite content
+        // Centaur
         this.centaur = this.add.sprite(180, GROUND_Y, 'centaur', 'frame_000');
         this.centaur.setScale(0.28);
         this.centaur.setOrigin(0.45, 0.85);
@@ -73,12 +124,14 @@ class GameScene extends Phaser.Scene {
         this.centaurVelocityY = 0;
         this.centaurY = GROUND_Y;
         this.isJumping = false;
+        this.canDoubleJump = false;
+        this.hasDoubleJumped = false;
+        this.jumpHoldTime = 0;
+        this.isHoldingJump = false;
 
         // Obstacles
         this.obstacles = [];
         this.nextObstacleTime = 2500;
-
-        // Obstacle types with their sprite keys and hitbox sizes
         this.obstacleTypes = [
             { key: 'obs_boulder', scale: 0.25, hitW: 50, hitH: 45 },
             { key: 'obs_logpile', scale: 0.30, hitW: 50, hitH: 45 },
@@ -86,44 +139,77 @@ class GameScene extends Phaser.Scene {
             { key: 'obs_mossylog', scale: 0.25, hitW: 55, hitH: 30 },
         ];
 
-        // Dust particles
+        // Dust
         this.dustParticles = [];
 
-        // Score
+        // UI
         this.scoreText = this.add.text(GAME_W - 16, 16, 'Score: 0', {
             fontSize: '24px', fontFamily: 'Georgia, serif', color: '#ffffff',
             fontStyle: 'bold', stroke: '#000000', strokeThickness: 3
         }).setOrigin(1, 0);
 
+        this.highScoreText = this.add.text(GAME_W - 16, 46, `Best: ${this.highScore}`, {
+            fontSize: '16px', fontFamily: 'Georgia, serif', color: '#C4A882',
+            stroke: '#000000', strokeThickness: 2
+        }).setOrigin(1, 0);
+
         this.speedMultiplier = 1;
 
-        // Instructions
-        this.instructionText = this.add.text(GAME_W / 2, GAME_H / 2 - 80,
-            'SPACE or CLICK to Jump!', {
-            fontSize: '28px', fontFamily: 'Georgia, serif', color: '#ffffff',
-            fontStyle: 'bold', stroke: '#000000', strokeThickness: 4, align: 'center'
+        // Mobile-friendly instructions
+        const isMobile = this.sys.game.device.os.android || this.sys.game.device.os.iOS ||
+                         this.sys.game.device.os.iPad || ('ontouchstart' in window);
+        const instrText = isMobile
+            ? 'TAP to Jump!\nHold longer = jump higher\nDouble-tap for double jump'
+            : 'SPACE to Jump! Hold for higher\nDouble-tap for double jump';
+
+        this.instructionText = this.add.text(GAME_W / 2, GAME_H / 2 - 80, instrText, {
+            fontSize: '24px', fontFamily: 'Georgia, serif', color: '#ffffff',
+            fontStyle: 'bold', stroke: '#000000', strokeThickness: 4, align: 'center',
+            lineSpacing: 6
         }).setOrigin(0.5).setAlpha(0.9);
 
-        this.time.delayedCall(2500, () => {
+        this.time.delayedCall(3000, () => {
             this.tweens.add({ targets: this.instructionText, alpha: 0, duration: 600 });
         });
 
-        // Input
+        // --- Input: unified touch + keyboard ---
+        // Pointer (touch/mouse) down = start jump
+        this.input.on('pointerdown', () => this.onJumpStart());
+        this.input.on('pointerup', () => this.onJumpRelease());
+
+        // Keyboard
         this.spaceBar = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
         this.upKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
-        this.input.on('pointerdown', () => this.jump());
 
         this.gameOverGroup = this.add.group();
     }
 
-    jump() {
+    onJumpStart() {
         if (this.isGameOver) { this.restartGame(); return; }
+
         if (!this.isJumping) {
+            // First jump
             this.isJumping = true;
-            this.centaurVelocityY = JUMP_VELOCITY;
+            this.centaurVelocityY = JUMP_VELOCITY_MIN;
+            this.isHoldingJump = true;
+            this.jumpHoldTime = 0;
+            this.canDoubleJump = true;
+            this.hasDoubleJumped = false;
             this.centaur.play('jump');
             this.spawnDust(this.centaur.x - 20, GROUND_Y, 6);
+        } else if (this.canDoubleJump && !this.hasDoubleJumped) {
+            // Double jump mid-air
+            this.hasDoubleJumped = true;
+            this.centaurVelocityY = JUMP_VELOCITY_MIN * 0.8;
+            this.isHoldingJump = true;
+            this.jumpHoldTime = 0;
+            this.centaur.play('jump');
+            this.spawnDust(this.centaur.x, this.centaurY, 4);
         }
+    }
+
+    onJumpRelease() {
+        this.isHoldingJump = false;
     }
 
     spawnDust(x, y, count) {
@@ -143,7 +229,7 @@ class GameScene extends Phaser.Scene {
         const t = Phaser.Utils.Array.GetRandom(this.obstacleTypes);
         const obs = this.add.image(GAME_W + 80, GROUND_Y, t.key);
         obs.setScale(t.scale);
-        obs.setOrigin(0.5, 1); // bottom-center aligned to ground
+        obs.setOrigin(0.5, 1);
         obs.hitW = t.hitW;
         obs.hitH = t.hitH;
         obs.scored = false;
@@ -164,6 +250,9 @@ class GameScene extends Phaser.Scene {
         this.centaurY = GROUND_Y;
         this.centaurVelocityY = 0;
         this.isJumping = false;
+        this.canDoubleJump = false;
+        this.hasDoubleJumped = false;
+        this.isHoldingJump = false;
         this.centaur.play('run');
         this.centaur.y = GROUND_Y;
         this.nextObstacleTime = 0;
@@ -173,7 +262,7 @@ class GameScene extends Phaser.Scene {
         const dt = delta / 1000;
         const speed = BASE_SCROLL * this.speedMultiplier;
 
-        // Scroll background (convert game-speed to texture-pixel-speed)
+        // Scroll background
         this.bg.tilePositionX += speed / this.bgScaleX;
 
         if (this.isGameOver) {
@@ -181,12 +270,25 @@ class GameScene extends Phaser.Scene {
             return;
         }
 
-        // Input
+        // Keyboard input
         if (Phaser.Input.Keyboard.JustDown(this.spaceBar) || Phaser.Input.Keyboard.JustDown(this.upKey)) {
-            this.jump();
+            this.onJumpStart();
+        }
+        if (this.spaceBar.isUp && this.upKey.isUp && this.isHoldingJump && !this.input.activePointer.isDown) {
+            this.onJumpRelease();
         }
 
         this.speedMultiplier = 1 + this.score * 0.04;
+
+        // Variable jump height: holding adds more upward velocity
+        if (this.isHoldingJump && this.isJumping && this.centaurVelocityY < 0) {
+            this.jumpHoldTime += delta;
+            const holdFactor = Math.min(this.jumpHoldTime / HOLD_TIME_FOR_MAX, 1);
+            const targetVel = Phaser.Math.Linear(JUMP_VELOCITY_MIN, JUMP_VELOCITY_MAX, holdFactor);
+            if (this.centaurVelocityY > targetVel) {
+                this.centaurVelocityY = targetVel;
+            }
+        }
 
         // Centaur physics
         if (this.isJumping) {
@@ -196,6 +298,9 @@ class GameScene extends Phaser.Scene {
                 this.centaurY = GROUND_Y;
                 this.centaurVelocityY = 0;
                 this.isJumping = false;
+                this.canDoubleJump = false;
+                this.hasDoubleJumped = false;
+                this.isHoldingJump = false;
                 this.centaur.play('run');
                 this.spawnDust(this.centaur.x, GROUND_Y, 8);
             }
@@ -228,9 +333,7 @@ class GameScene extends Phaser.Scene {
                 this.scoreText.setText(`Score: ${this.score}`);
             }
 
-            // Collision - tight inner hitbox on the centaur body only
-            // The sprite is wide (horse body + flowing hair) but the
-            // collidable core is just the torso/legs area
+            // Tight collision
             const cL = this.centaur.x - 10, cR = this.centaur.x + 15;
             const cT = this.centaurY - 70, cB = this.centaurY - 5;
             const oL = obs.x - obs.hitW * 0.35, oR = obs.x + obs.hitW * 0.35;
@@ -246,20 +349,30 @@ class GameScene extends Phaser.Scene {
         this.centaur.stop();
         this.centaur.setAlpha(0.6);
 
+        // Update high score
+        if (this.score > this.highScore) {
+            this.highScore = this.score;
+            localStorage.setItem('centaur_hs', String(this.highScore));
+            this.highScoreText.setText(`Best: ${this.highScore}`);
+        }
+
         const overlay = this.add.rectangle(GAME_W/2, GAME_H/2, GAME_W, GAME_H, 0x000000, 0.4);
-        const panel = this.add.rectangle(GAME_W/2, GAME_H/2, 320, 200, 0x1a1a2e, 0.9)
+        const panel = this.add.rectangle(GAME_W/2, GAME_H/2, 320, 220, 0x1a1a2e, 0.9)
             .setStrokeStyle(2, 0xC4A882);
-        const t1 = this.add.text(GAME_W/2, GAME_H/2 - 50, 'GAME OVER', {
+        const t1 = this.add.text(GAME_W/2, GAME_H/2 - 60, 'GAME OVER', {
             fontSize: '36px', fontFamily: 'Georgia, serif', color: '#C4A882', fontStyle: 'bold'
         }).setOrigin(0.5);
-        const t2 = this.add.text(GAME_W/2, GAME_H/2, `Score: ${this.score}`, {
+        const t2 = this.add.text(GAME_W/2, GAME_H/2 - 10, `Score: ${this.score}`, {
             fontSize: '28px', fontFamily: 'Georgia, serif', color: '#ffffff'
         }).setOrigin(0.5);
-        const t3 = this.add.text(GAME_W/2, GAME_H/2 + 50, 'Click or SPACE to restart', {
+        const t3 = this.add.text(GAME_W/2, GAME_H/2 + 25, `Best: ${this.highScore}`, {
+            fontSize: '20px', fontFamily: 'Georgia, serif', color: '#C4A882'
+        }).setOrigin(0.5);
+        const t4 = this.add.text(GAME_W/2, GAME_H/2 + 70, 'Tap or SPACE to restart', {
             fontSize: '16px', fontFamily: 'Georgia, serif', color: '#999999'
         }).setOrigin(0.5);
 
-        this.gameOverGroup.addMultiple([overlay, panel, t1, t2, t3]);
+        this.gameOverGroup.addMultiple([overlay, panel, t1, t2, t3, t4]);
     }
 }
 
@@ -267,9 +380,15 @@ new Phaser.Game({
     type: Phaser.AUTO,
     width: GAME_W,
     height: GAME_H,
-    backgroundColor: '#87CEEB',
+    backgroundColor: '#1a1a2e',
     scene: GameScene,
-    scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH }
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
+    input: {
+        activePointers: 2  // support multi-touch for double jump
+    }
 });
 </script>
 </body>
